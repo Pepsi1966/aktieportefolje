@@ -4,7 +4,6 @@ import os
 
 app = Flask(__name__, static_folder='static')
 
-# Valutakurser til DKK (hentes live fra Yahoo Finance)
 FX_PAIRS = {
     'EUR': 'EURDKK=X',
     'USD': 'USDDKK=X',
@@ -13,6 +12,18 @@ FX_PAIRS = {
     'NOK': 'NOKDKK=X',
 }
 
+def get_price(symbol):
+    try:
+        t = yf.Ticker(symbol)
+        hist = t.history(period='5d')
+        if hist.empty:
+            return None, None
+        price = float(hist['Close'].dropna().iloc[-1])
+        currency = (t.fast_info.currency or 'DKK').upper()
+        return price, currency
+    except:
+        return None, None
+
 def get_fx_rate(currency):
     if currency == 'DKK':
         return 1.0
@@ -20,58 +31,34 @@ def get_fx_rate(currency):
     if not symbol:
         return None
     try:
-        ticker = yf.Ticker(symbol)
-        price = ticker.fast_info.last_price
-        return round(price, 4) if price else None
+        t = yf.Ticker(symbol)
+        hist = t.history(period='5d')
+        if hist.empty:
+            return None
+        return round(float(hist['Close'].dropna().iloc[-1]), 4)
     except:
         return None
 
 @app.route('/api/quote/<ticker>')
 def quote(ticker):
     try:
-        t = yf.Ticker(ticker)
-        info = t.fast_info
-        price = info.last_price
-        currency = getattr(info, 'currency', 'DKK') or 'DKK'
-        currency = currency.upper()
+        price, currency = get_price(ticker)
+        if price is None:
+            return jsonify({'error': 'Kurs ikke fundet'}), 404
 
-        # GBp (pence) → GBP
-        if currency == 'GBP' and price and price > 500:
+        if currency == 'GBP' and price > 500:
             price = price / 100
 
         fx_rate = get_fx_rate(currency)
 
         return jsonify({
             'ticker': ticker,
-            'price': round(price, 2) if price else None,
+            'price': round(price, 2),
             'currency': currency,
             'rate_to_dkk': fx_rate,
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
-@app.route('/api/quotes')
-def quotes_bulk():
-    """Hent kurser for alle tre fonde på én gang"""
-    tickers = ['MAJVAA.CO', 'STIIAM.CO', 'JREG.DE']
-    result = {}
-    for ticker in tickers:
-        try:
-            t = yf.Ticker(ticker)
-            info = t.fast_info
-            price = info.last_price
-            currency = (getattr(info, 'currency', 'DKK') or 'DKK').upper()
-            if currency == 'GBP' and price and price > 500:
-                price = price / 100
-            fx_rate = get_fx_rate(currency)
-            result[ticker] = {
-                'price': round(price, 2) if price else None,
-                'currency': currency,
-                'rate_to_dkk': fx_rate,
-            }
-        except Exception as e:
-            result[ticker] = {'error': str(e)}
-    return jsonify(result)
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
