@@ -13,16 +13,41 @@ FX_PAIRS = {
 }
 
 def get_price(symbol):
+    t = yf.Ticker(symbol)
+
+    # Metode 1: history
     try:
-        t = yf.Ticker(symbol)
         hist = t.history(period='5d')
-        if hist.empty:
-            return None, None
-        price = float(hist['Close'].dropna().iloc[-1])
-        currency = (t.fast_info.currency or 'DKK').upper()
-        return price, currency
+        if not hist.empty:
+            price = float(hist['Close'].dropna().iloc[-1])
+            try:
+                currency = (t.fast_info.currency or 'DKK').upper()
+            except:
+                currency = 'DKK'
+            return price, currency
     except:
-        return None, None
+        pass
+
+    # Metode 2: fast_info direkte
+    try:
+        price = t.fast_info.last_price
+        currency = (t.fast_info.currency or 'DKK').upper()
+        if price:
+            return float(price), currency
+    except:
+        pass
+
+    # Metode 3: info dict
+    try:
+        info = t.info
+        price = info.get('regularMarketPrice') or info.get('currentPrice') or info.get('navPrice')
+        currency = (info.get('currency') or 'DKK').upper()
+        if price:
+            return float(price), currency
+    except:
+        pass
+
+    return None, None
 
 def get_fx_rate(currency):
     if currency == 'DKK':
