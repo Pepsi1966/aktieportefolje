@@ -12,40 +12,52 @@ FX_PAIRS = {
     'NOK': 'NOKDKK=X',
 }
 
+# Fallback tickere hvis primær fejler
+TICKER_FALLBACKS = {
+    'STIIAM.CO': 'STIIAM.ST',
+    'MAJVAA.CO': 'MAJVAA.CO',
+    'JREG.DE':   'JREG.DE',
+}
+
 def get_price(symbol):
-    t = yf.Ticker(symbol)
+    symbols_to_try = [symbol]
+    if symbol in TICKER_FALLBACKS and TICKER_FALLBACKS[symbol] != symbol:
+        symbols_to_try.append(TICKER_FALLBACKS[symbol])
 
-    # Metode 1: history
-    try:
-        hist = t.history(period='5d')
-        if not hist.empty:
-            price = float(hist['Close'].dropna().iloc[-1])
-            try:
-                currency = (t.fast_info.currency or 'DKK').upper()
-            except:
-                currency = 'DKK'
-            return price, currency
-    except:
-        pass
+    for sym in symbols_to_try:
+        t = yf.Ticker(sym)
 
-    # Metode 2: fast_info direkte
-    try:
-        price = t.fast_info.last_price
-        currency = (t.fast_info.currency or 'DKK').upper()
-        if price:
-            return float(price), currency
-    except:
-        pass
+        # Metode 1: history
+        try:
+            hist = t.history(period='5d')
+            if not hist.empty:
+                price = float(hist['Close'].dropna().iloc[-1])
+                try:
+                    currency = (t.fast_info.currency or 'DKK').upper()
+                except:
+                    currency = 'DKK'
+                return price, currency
+        except:
+            pass
 
-    # Metode 3: info dict
-    try:
-        info = t.info
-        price = info.get('regularMarketPrice') or info.get('currentPrice') or info.get('navPrice')
-        currency = (info.get('currency') or 'DKK').upper()
-        if price:
-            return float(price), currency
-    except:
-        pass
+        # Metode 2: fast_info
+        try:
+            price = t.fast_info.last_price
+            currency = (t.fast_info.currency or 'DKK').upper()
+            if price:
+                return float(price), currency
+        except:
+            pass
+
+        # Metode 3: info dict
+        try:
+            info = t.info
+            price = info.get('regularMarketPrice') or info.get('currentPrice') or info.get('navPrice')
+            currency = (info.get('currency') or 'DKK').upper()
+            if price:
+                return float(price), currency
+        except:
+            pass
 
     return None, None
 
@@ -64,12 +76,12 @@ def get_fx_rate(currency):
     except:
         return None
 
-@app.route('/api/quote/<ticker>')
+@app.route('/api/quote/<path:ticker>')
 def quote(ticker):
     try:
         price, currency = get_price(ticker)
         if price is None:
-            return jsonify({'error': 'Kurs ikke fundet'}), 404
+            return jsonify({'error': 'Kurs ikke fundet for ' + ticker}), 404
 
         if currency == 'GBP' and price > 500:
             price = price / 100
@@ -88,6 +100,8 @@ def quote(ticker):
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve(path):
+    if path.startswith('api/'):
+        return jsonify({'error': 'Not found'}), 404
     if path and os.path.exists(os.path.join(app.static_folder, path)):
         return send_from_directory(app.static_folder, path)
     return send_from_directory(app.static_folder, 'index.html')
